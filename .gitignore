@@ -21,7 +21,7 @@ node_modules/
 .terraform/
 # Terraform state files: they hold secrets in plain text (2 lines: the state file and its backups)
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
 
 # ---------- Editors / OS ----------
 .vscode/*
