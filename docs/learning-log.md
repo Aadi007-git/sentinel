@@ -40,3 +40,41 @@ The plan and progress checklist live in [roadmap.md](roadmap.md).
 - [cheatsheets/linux.md](cheatsheets/linux.md), [cheatsheets/git.md](cheatsheets/git.md)
 
 **Next:** Step 1.1, System design I: HLD (requirements + capacity estimates).
+
+---
+
+## 2026-11-01: Step 1.1 System design I: HLD (part 1: requirements + estimates)
+
+**Did**
+- Learned what HLD vs LLD is, how design docs work, and the 5-stage system-design framework.
+- Made 4 product decisions: **D1** invite-only teams (multi-tenant), **D2** 1-minute interval,
+  **D3** 2 of 3 regions failing for 2 consecutive rounds, **D4** 30 days of raw data + 1 year of rollups.
+- Wrote 12 functional and 12 measurable non-functional requirements in `docs/design/HLD.md`.
+- Completed the capacity-estimates worksheet: 500 checks/s, 43.2M rows/day, 8.64 GB/day,
+  ~260 GB retained, 140 s worst-case detection.
+
+**Went wrong → fixed**
+- Labelled byte counts as GB (wrote 8,640,000,000 "GB" for 8.64 GB). Fix: group digits in threes;
+  10 digits ≈ GB.
+- Rollup storage used the raw row count (43.2M) instead of rollup rows (240,000): 1.6 TB instead
+  of 8.8 GB.
+- Didn't know how to build up the worst-case detection time. Walked through it as a timeline:
+  60 + 60 + 10 + 10 = 140 s.
+
+**Learned**
+- Estimates decide the architecture: write-heavy at 500/s means batch writes, daily partitions,
+  rollups, and dropping partitions instead of deleting rows.
+- Average ≠ peak: synchronized schedules create spikes (30,000 checks in one second); spreading
+  with `hash(id) % 60` flattens them. The same idea as jitter on retries.
+- Pre-aggregation (rollups) trades detail for cheap reads: ~360× less storage per year.
+- A CDN makes origin load independent of viewer count, which is critical for a status page during an outage.
+- Estimates surface cost surprises: one result per queue message would cost ~$150/month in SQS
+  requests at design scale; packing results per message cuts that ~100×.
+- Worst-case timeline reasoning proves whether an NFR is achievable before building anything.
+
+**Notes / cheatsheets written**
+- [design/HLD.md](design/HLD.md) (sections 1–6), [design/capacity-estimates.md](design/capacity-estimates.md)
+- [cheatsheets/system-design.md](cheatsheets/system-design.md)
+
+**Next:** Step 1.1 part 2: architecture components + data-flow diagram, ADR-0001 (modular monolith
+vs microservices), ADR-0002 (how results travel from probe to core).
