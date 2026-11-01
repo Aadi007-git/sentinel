@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft. Step 1.1 in progress |
+| **Status** | v1 complete (Step 1.1). Low-level design next ([LLD.md](LLD.md), Step 1.2) |
 | **Author** | Aadi007-git |
 | **Last updated** | 2026-11-01 |
 | **Related** | [capacity-estimates.md](capacity-estimates.md) · [roadmap](../roadmap.md) · ADRs in [../adr/](../adr/) |
@@ -95,9 +95,123 @@ Full worksheet: [capacity-estimates.md](capacity-estimates.md). Headline numbers
 
 ## 7. Architecture
 
-*Next part of Step 1.1: components, data flow diagram, and the key decisions (ADR-0001, ADR-0002).*
+### 7.1 Architecture decisions
 
-## 8. Open questions
+| ADR | Decision |
+|---|---|
+| [ADR-0001](../adr/0001-modular-monolith-core.md) | `sentinel-core` is a **modular monolith**: one codebase and one image, run as several roles |
+| [ADR-0002](../adr/0002-sqs-for-check-results.md) | Check results travel probe → core through **SQS**, with a dead-letter queue |
+| [ADR-0003](../adr/0003-probe-fan-out-with-delay-queue.md) | Each probe region uses a **dispatcher + delay queue** to spread checks across the minute and fan out to parallel workers |
 
-- Probe fan-out: at design scale, can one probe run per region finish ~10,000 checks within a minute,
-  or do we split the work across several parallel runs? (Architecture section.)
+### 7.2 System overview
+
+```mermaid
+flowchart LR
+    subgraph REGION["Probe region ×3: us-east-1 · eu-west-1 · ap-south-1 (Lambda, no VPC)"]
+        SCH["EventBridge Scheduler<br/>every minute"] --> DSP["dispatcher"]
+        DSP -->|"shards, delay = offset"| JQ[("jobs queue (SQS)")]
+        JQ --> WRK["workers<br/>(in parallel)"]
+    end
+
+    CFG[("S3: monitor config snapshot")] -.->|"read each minute"| DSP
+    WRK -->|"HTTP checks"| TGT(("Customer sites<br/>and APIs"))
+    WRK -->|"results, ~100 per message"| RQ
+
+    subgraph CORE["Core region: EKS + RDS"]
+        RQ[("results queue (SQS)")] --> CORESVC["sentinel-core<br/>(modular monolith)"]
+        RQ -.->|"after 5 failed tries"| DLQ[("dead-letter queue")]
+        CORESVC <--> DB[("RDS Postgres")]
+    end
+
+    CORESVC -->|"config snapshot"| CFG
+    CORESVC -->|"status JSON every 30 s"| STAT[("S3: status data")]
+    STAT --> CDN["CloudFront CDN"] --> VISITORS(("Status page<br/>visitors"))
+    CORESVC -->|"alerts"| CHAN(("Slack · Discord · email"))
+    CORESVC -->|"incident evidence"| LLM(("LLM: fake / Ollama / Claude"))
+    USERS(("Team members")) --> WEB["web dashboard (React)"] -->|"HTTPS, sync"| CORESVC
+    CORESVC -.->|"heartbeat"| HB(("External heartbeat<br/>service"))
+```
+
+### 7.3 Inside sentinel-core
+
+```mermaid
+flowchart TB
+    RQ[("results queue")] --> ING["ingestor<br/>de-duplicates, batch-inserts"]
+    ING --> CR[("check_results<br/>partitioned by day")]
+    EVL["evaluator<br/>every 10 s: 2-of-3 quorum,<br/>spots silent regions"] --> CR
+    EVL -->|"one transaction"| INC[("incidents + outbox")]
+    INC --> NTF["notifier<br/>sends alerts, retries"]
+    INC --> SUM["summarizer<br/>AI draft update"]
+    SUM --> INC
+    API["api<br/>monitors, incidents, auth"] --> MON[("teams, projects, monitors")]
+    API --> INC
+    PUB["publisher<br/>config + status snapshots"] --> MON
+    PUB --> INC
+    CRON["CronJobs<br/>hourly rollups, partition upkeep"] --> CR
+```
+
+### 7.4 Components
+
+| Component | Runs on | Responsibility | Scales on |
+|---|---|---|---|
+| **dispatcher** | Lambda, each probe region | Every minute: read the config snapshot, put each monitor in a 10-second bucket by `hash(monitor_id) % 60`, split buckets into shards of ≤ 200 monitors, enqueue each shard with `DelaySeconds` = its bucket's offset | 1 run per minute |
+| **jobs queue** | SQS, each probe region | Holds shards until their delay expires | Managed |
+| **worker** | Lambda, each probe region | Run one shard's checks with a concurrency limit, spread across its 10 s window; pack ~100 results per message; send them to the results queue in the core region | Lambda concurrency (one per shard) |
+| **results queue + DLQ** | SQS, core region | Buffer results; keep them up to 14 days if the core is down; move a message to the dead-letter queue after 5 failed attempts | Managed |
+| **ingestor** | EKS role | Long-poll the results queue; de-duplicate by `check_id`; batch-insert; delete messages only **after** the database commit | Queue depth (KEDA, Step 3.3) |
+| **evaluator** | EKS role | Every 10 s: apply the quorum rule per monitor; mark regions that have gone silent as UNKNOWN; open/resolve incidents and write outbox events **in the same transaction**; send the heartbeat | 1–2 replicas (row locks prevent double work) |
+| **notifier** | EKS role | Read outbox events; send to Slack/Discord webhooks and email (Amazon SES); retry with backoff; mark sent | Outbox backlog |
+| **summarizer** | EKS role | On incident events: gather evidence → LLM adapter → store a draft; a human approves it in the dashboard | Rarely busy |
+| **publisher** | EKS role | On monitor changes: write the config snapshot to S3. Every 30 s: write each project's status JSON to S3 | 1 replica |
+| **api** | EKS role | REST API for the dashboard; authentication; enforces tenant isolation (NFR9) | CPU (HPA) |
+| **CronJobs** | EKS, same image | Hourly rollups; create tomorrow's partition and drop partitions older than 30 days | Scheduled |
+| **web** | Static files | React dashboard for team members | CDN / nginx |
+| **status page** | S3 + CloudFront | Static page that reads the status JSON | CDN |
+
+All core roles come from **one image**: `sentinel-core api`, `sentinel-core ingestor`, `sentinel-core rollup`, …
+
+### 7.5 Key flows
+
+1. **Config flow:** a user saves a monitor (sync API call) → the database + an outbox event → the
+   publisher rewrites the snapshot in S3 → the dispatchers pick it up on their next run. A change takes
+   effect within ~1–2 minutes.
+2. **Check flow:** scheduler → dispatcher → jobs queue (delayed by offset) → workers → customer sites →
+   results queue → ingestor → `check_results`.
+3. **Incident flow:** the evaluator sees 2 of 3 regions failing for 2 rounds → in **one transaction**,
+   it opens the incident and writes outbox events → the notifier sends alerts; the summarizer drafts
+   an AI update → a human approves it → the publisher includes it in the status JSON.
+4. **Status page flow:** the publisher writes status JSON to S3 every 30 s → CloudFront → visitors.
+   If the core is down, the page is **still served**, showing its "last updated" time.
+5. **Self-monitoring flow:** the evaluator sends a heartbeat to an external service **only if the
+   newest check result is less than 2 minutes old**. The heartbeat therefore proves the *whole
+   pipeline* is alive (probes → queue → ingestor → evaluator), not just that one process is running.
+   If heartbeats stop, the external service alerts the operator.
+
+### 7.6 Sync vs async map
+
+| Interaction | Style | Why |
+|---|---|---|
+| Dashboard → api | **Sync** (HTTPS) | The user needs an answer now ("monitor saved") |
+| Scheduler → dispatcher → jobs queue → workers | **Async** | Spreads load over time; workers run in parallel |
+| Workers → results queue → ingestor | **Async** | Probes must never block on, or lose data to, a slow or down core |
+| Evaluator → notifier / summarizer (outbox) | **Async** | Alerts survive crashes and get retried; slow Slack or LLM calls never delay detection |
+| Publisher → S3 → CDN → visitors | **Async** (published snapshot) | The status page doesn't share fate with the core (NFR3) |
+
+### 7.7 Timing check against NFR1
+
+The processing estimate in capacity-estimates.md was ~10 s. With this architecture, the worst case
+adds up as: up to 1 s for the dispatch delay + ~1–2 s for queue long-polling + up to 10 s waiting for
+the evaluator's next tick + ~1–2 s for the notifier ≈ **15 s**. The total becomes 60 + 60 + 10 + 15
+= **145 s**, still within the 180 s target.
+
+**Design insight:** the evaluator runs on a **timer**, not only when new results arrive, because
+you can't detect *silence* with an event: a region that stops reporting sends no event at all.
+Spotting missing data needs a clock.
+
+## 8. Open questions (for Step 2.0's failure-mode analysis)
+
+- If the **core region** is unavailable, probes can't deliver results to the queue. What should
+  workers do: retry, buffer, or drop with a metric?
+- If **S3 config** is unreachable, should dispatchers keep using the last snapshot they read?
+- **Clock skew:** results from 3 regions must be grouped into the same "round". Group by the check's
+  scheduled minute, not its arrival time? (LLD, Step 1.2.)

@@ -78,3 +78,43 @@ The plan and progress checklist live in [roadmap.md](roadmap.md).
 
 **Next:** Step 1.1 part 2: architecture components + data-flow diagram, ADR-0001 (modular monolith
 vs microservices), ADR-0002 (how results travel from probe to core).
+
+---
+
+## 2026-11-01: Step 1.1 System design I: HLD (part 2: architecture) ✅ Step complete
+
+**Did**
+- Learned sync vs async communication, monolith vs modular monolith vs microservices, queue vs
+  stream vs event bus, and fan-out with load spreading.
+- Made 3 architecture decisions, written up as the first ADRs:
+  - **ADR-0001** `sentinel-core` is a modular monolith: one image, several roles.
+  - **ADR-0002** Results travel probe → core via SQS + a dead-letter queue.
+  - **ADR-0003** Each probe region uses dispatcher → delay queue → parallel workers (6 × 10 s
+    buckets, shards of ≤ 200 monitors).
+- Completed HLD section 7: system overview and core-internals diagrams (Mermaid), a components
+  table, 5 key flows, the sync/async map, and an updated timing check (worst case 145 s vs 180 s target).
+
+**Learned**
+- Async isn't automatically better: use it when the sender doesn't need an answer now. Its price is
+  at-least-once delivery, so consumers must be idempotent (dedup by `check_id`, delete only after commit).
+- Microservices solve an organizational problem (many teams), not a technical one. A modular monolith
+  gives independent scaling with one image and one pipeline (Prime Video cut costs ~90% by consolidating).
+- Platform limits drive architecture: Lambda's 1,024 file-descriptor limit is what forces fan-out at
+  design scale.
+- SQS `DelaySeconds` gives sub-minute scheduling even though EventBridge Scheduler fires once a minute.
+- You can't detect silence with events: the evaluator needs a timer to notice a region that stopped reporting.
+- A heartbeat should prove the whole pipeline is working (newest result < 2 min old), not just that a
+  process is up.
+
+**Notes / cheatsheets written**
+- [design/HLD.md](design/HLD.md) section 7; ADRs [0001](adr/0001-modular-monolith-core.md),
+  [0002](adr/0002-sqs-for-check-results.md), [0003](adr/0003-probe-fan-out-with-delay-queue.md),
+  [adr/README.md](adr/README.md) (index + template)
+- [notes/sync-vs-async-and-queues.md](notes/sync-vs-async-and-queues.md),
+  [notes/modular-monolith-vs-microservices.md](notes/modular-monolith-vs-microservices.md),
+  [notes/fan-out-and-load-spreading.md](notes/fan-out-and-load-spreading.md)
+- [cheatsheets/system-design.md](cheatsheets/system-design.md): communication, queue vs stream,
+  architecture shapes, patterns table, ADR writing
+
+**Next:** Step 1.2, System design II: LLD (API design, data model, class design + patterns,
+sequence and state diagrams).

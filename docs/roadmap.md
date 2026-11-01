@@ -16,12 +16,12 @@ never pages anyone. Sentinel then opens an incident, alerts by Slack / Discord /
 
 Sentinel also **watches itself** with an independent heartbeat (a "dead man's switch").
 
-## Architecture (first draft, refined in Step 1.1)
+## Architecture (summary; the full version is in [design/HLD.md](design/HLD.md#7-architecture))
 
 ```
- ┌───────────── Probe regions: AWS Lambda, outside any VPC ──────────────┐
- │  us-east-1              eu-west-1              ap-south-1             │
- │  scheduler ─> probe     scheduler ─> probe     scheduler ─> probe     │
+ ┌───────────── Probe regions ×3: AWS Lambda, outside any VPC ───────────┐
+ │  us-east-1 · eu-west-1 · ap-south-1, each running:                    │
+ │  scheduler ─> dispatcher ─> jobs queue (delay = offset) ─> workers    │
  └──────┬───────────────────────┬────────────────────────┬──────────────┘
         │ reads the monitor list from a snapshot file in S3
         └──────────── check results (batched) ───────────┘
@@ -68,7 +68,7 @@ Goal: a written design; the whole system runs with `docker compose up`; every PR
 and security-scanned; every merge produces versioned, scanned images.
 
 - [x] **1.0 Orientation + setup**: DevOps, CALMS, DORA metrics, Linux shell, WSL, `gh`, `uv`, SSH, repo
-- [ ] **1.1 System design I: HLD**: requirements, capacity estimates, components, ADR-0001, ADR-0002
+- [x] **1.1 System design I: HLD**: requirements, capacity estimates, components, ADR-0001, ADR-0002, ADR-0003
 - [ ] **1.2 System design II: LLD**: API design, data model, class design + patterns, sequence and state diagrams
 - [ ] **1.3 Git like a team**: trunk-based development, PRs, conventional commits, branch protection, pre-commit hooks
 - [ ] **1.4 The app (12-factor)**: probe, core and web implemented from the LLD; run without Docker

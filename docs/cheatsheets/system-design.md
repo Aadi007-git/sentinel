@@ -82,6 +82,53 @@ that both must work give 99.9% × 99.9% ≈ **99.8%**.
 The lesson: **network hops between regions cost about a million times more than memory reads.**
 Avoid chatty cross-region calls. That's why Sentinel's probes send results **in batches**.
 
+## Communication: sync or async?
+
+| Use **sync** (request/response) when… | Use **async** (queue/events) when… |
+|---|---|
+| The caller needs the answer **now** (a user clicked "Save") | The work can happen **later**; no reply is needed |
+| The operation is fast and the callee is reliable | The receiver may be slow, down or scaling |
+| | You need to absorb spikes or fan out work |
+
+Async's price: **at-least-once delivery → idempotent consumers**, no ordering guarantee, harder debugging.
+
+## Queue vs stream vs event bus
+
+| | Queue (SQS) | Stream / log (Kafka, Kinesis) | Event bus (EventBridge) |
+|---|---|---|---|
+| Model | Work items, each taken by one consumer, then deleted | Append-only log; many consumer groups each read everything | Routes each event to matching targets |
+| Ordering | No (standard) / yes (FIFO) | Yes, per partition | No |
+| Replay | No | Yes (within retention) | Limited (archive) |
+| Ops cost | None (serverless) | Brokers/shards to run and pay for | None |
+| Pick when | Background jobs, buffering, ingestion | Many consumers, replay, ordering, very high throughput | Routing events between services and accounts |
+
+## Architecture shapes
+
+| Shape | Choose when |
+|---|---|
+| Monolith | Small app, one team, uniform load |
+| **Modular monolith** (one image, many roles) | One team, parts need independent scaling or isolation |
+| Microservices | Many teams who need independent releases; clear, stable domain boundaries |
+
+## Patterns introduced so far
+
+| Pattern | One-liner | In Sentinel |
+|---|---|---|
+| **Queue-based load levelling** | A queue absorbs spikes; consumers work at a steady rate | Results queue |
+| **Dead-letter queue** | Park messages that keep failing | Results DLQ |
+| **Idempotent consumer** | Duplicates are harmless | Dedup by `check_id` |
+| **Fan-out / fan-in** | Split work into parallel shards / gather results | Dispatcher → workers |
+| **Stable offset spreading** | `hash(id) % period` flattens spikes | Checks spread across the minute |
+| **Transactional outbox** | Write the state change and the "send this" event in one transaction | Incidents → notifier (details in Step 3.0) |
+| **Static stability** | Keep serving from a precomputed snapshot when dependencies fail | Status page on S3 + CDN |
+| **Dead man's switch** | Alert when an expected heartbeat *stops* | External heartbeat |
+
+## Writing an ADR
+
+Context → decision drivers → options (pros/cons) → decision → consequences (including the costs you
+accept) → when to revisit. One decision per ADR; never edit an accepted one; supersede it instead.
+Template: [docs/adr/README.md](../adr/README.md).
+
 ## Unit conversion: bytes → GB in your head
 
 Group the digits in threes from the right; each group of three zeros is one unit step:
