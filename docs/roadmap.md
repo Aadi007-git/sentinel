@@ -57,7 +57,7 @@ Sentinel also **watches itself** with an independent heartbeat (a "dead man's sw
 - **Claude implements the application code** (Python and React) from my design and walks me through it.
 - **I write every DevOps and infrastructure file**: Dockerfiles, Compose, CI/CD, Kubernetes, Helm,
   Terraform, Argo CD, dashboards, alerts, policies.
-- **Every step:** concept → design → build → review → verify → break it → checkpoint questions →
+- **Every step:** concept → design → build → review → verify → break it → checkpoint discussion →
   note in `docs/notes/` + cheatsheet in `docs/cheatsheets/`.
 
 ---

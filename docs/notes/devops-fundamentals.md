@@ -1,10 +1,12 @@
 # DevOps fundamentals
 
-> **In my own words** (3 lines, written by me after Step 1.0):
+> **TL;DR**
 >
-> 1. …
-> 2. …
-> 3. …
+> 1. DevOps removes the wall between building software and running it: one team owns both, and
+>    automation replaces manual handoffs.
+> 2. CALMS (Culture, Automation, Lean, Measurement, Sharing) is what that looks like in practice.
+> 3. DORA metrics measure it: two for speed, two for stability, and the best teams win on both,
+>    because small, frequent changes are safer than big, rare ones.
 
 ---
 

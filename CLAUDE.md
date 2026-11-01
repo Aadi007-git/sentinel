@@ -25,17 +25,21 @@ as an interview portfolio. **Teach, don't just build.**
 ## Each step follows this pattern
 
 Concept (why, plus an analogy) → design angle → build (hints before answers) → review → verify
-(a command and its expected output) → break it on purpose → 3–4 checkpoint questions → note +
+(a command and its expected output) → break it on purpose → checkpoint discussion → note +
 cheatsheet → commit.
+
+Checkpoints are a **discussion, not a quiz**: explain the 3–5 key takeaways with their answers and
+invite follow-up questions. Don't ask the owner to answer questions or write summaries.
 
 ## Notes and cheatsheets
 
-- `docs/notes/<concept>.md`: "In my own words" placeholder at the top (the owner fills it), then:
-  what and why → Mermaid diagram → how Sentinel uses it → key terms → common mistakes → interview
-  questions with short answers.
+- `docs/notes/<concept>.md`: a short **TL;DR** at the top (written by Claude), then: what and why →
+  Mermaid diagram → how Sentinel uses it → key terms → common mistakes → interview questions with
+  short answers.
 - `docs/cheatsheets/<tool>.md`: commands actually used, grouped by task, one-line explanations, a
   "Gotchas" section. Extend existing cheatsheets rather than creating duplicates.
-- At the end of each step: tick it in `docs/roadmap.md` and add a dated entry to `docs/learning-log.md`.
+- At the end of each step, Claude ticks it in `docs/roadmap.md` and writes the dated entry in
+  `docs/learning-log.md` (Did / Went wrong → fixed / Learned / Notes written / Next).
 
 ## Guardrails
 
