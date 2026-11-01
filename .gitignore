@@ -1,0 +1,29 @@
+# ---------- Secrets: must NEVER reach Git ----------
+.env
+.env.*
+# "!" means exception: the example file has no real values, so it IS committed
+!.env.example
+# private key files, like the .pem keys in your ~/.ssh   (hint: a wildcard plus the extension)
+*.pem
+
+# ---------- Python ----------
+__pycache__/
+.pytest_cache/
+# the virtual-environment folder uv creates   (hint: a hidden folder whose name starts with a dot)
+.venv/
+
+# ---------- Node / React ----------
+dist/
+# where npm downloads packages: huge, and can always be re-created
+node_modules/
+
+# ---------- Terraform (Phase 2) ----------
+.terraform/
+# Terraform state files: they hold secrets in plain text (2 lines: the state file and its backups)
+*.tfstate
+*.tfstate.backup
+
+# ---------- Editors / OS ----------
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
